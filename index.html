@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="ko">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Coast Club · 해변 카트 레이싱</title><link rel="stylesheet" href="style.css?v=8"></head>
+<body>
+<header><a class="brand" href="./"><span>✳</span> COAST CLUB<small>THE SUNNY SIDE OF SPEED</small></a><div class="header-right"><span class="weather">☀ 24° · MALIBU, CA</span><button id="sound" aria-label="소리 켜기">♫ SOUND OFF</button></div></header>
+<main><div class="eyebrow">PALM TREES. SEA BREEZE. FULL SPEED.</div><div class="title-row"><h1>Life’s a beach.<br><em>Race it.</em></h1><p>햇살 한 스푼, 드리프트 한 바퀴.<br>우리의 작은 해변 레이스에 오신 걸 환영해요.</p></div>
+<section class="game" aria-label="해변 레이싱 게임"><canvas id="race" aria-label="방향키로 조작하는 해변 카트 레이스"></canvas>
+<div class="hud"><div class="track-tag"><span>01 / COASTAL CIRCUIT</span><strong id="section-name">SUNSHINE STRAIGHT</strong></div><div class="stats"><div><small>POSITION</small><b id="position">4<span>/4</span></b></div><div><small>LAP</small><b id="lap">1<span>/3</span></b></div><div><small>TIME</small><b id="time">00:00.000</b></div></div><button id="pause" aria-label="일시 정지">Ⅱ</button></div>
+<div id="overlay" class="overlay"><div class="badge">☀ GOOD VIBES, FAST RIDES</div><h2>해변으로 떠나볼까요?</h2><p>귀여운 토끼와 함께 달리는 파스텔빛 해안 도로.</p><button id="start" class="primary">LET’S RACE <span>↗</span></button><small>방향키 / WASD · 코너에서 Shift → 놓아서 터보 · 터치: 자동 가속</small></div>
+<div class="bottom-hud"><div class="driver"><span>🐰</span><div><small>YOUR DRIVER</small><b>Bunny / 버니</b></div></div><div id="notice" role="status">SEE YOU AT THE FINISH LINE ♡</div><div class="speed"><b id="speed">0</b><small>KM/H</small><div class="boost-bar"><i id="boost"></i></div><small>BOOST · SPACE</small></div></div>
+<div class="record-strip"><span id="record"></span><span id="lap-record"></span></div><div class="touch"><button data-key="ArrowLeft" aria-label="왼쪽">←</button><button data-key="ArrowRight" aria-label="오른쪽">→</button><button data-key="Shift" aria-label="드리프트">DRIFT</button><button data-key=" " aria-label="부스터">BOOST</button><button data-key="ArrowDown" aria-label="브레이크">BRAKE</button></div>
+</section>
+<footer><div><span class="dot"></span> A LITTLE ESCAPE, A LOT OF FUN.</div><div class="controls"><span><kbd>↑</kbd> 가속 <kbd>↓</kbd> 브레이크</span><span><kbd>←</kbd><kbd>→</kbd> 방향</span><span><kbd>SHIFT</kbd> 드리프트</span><span><kbd>SPACE</kbd> 부스터</span></div></footer>
+<section class="details"><div><span>✿</span><h3>Take the scenic route.</h3><p>야자수 사이로, 반짝이는 바다 옆으로.</p></div><div><span>↝</span><h3>A little drift. A big smile.</h3><p>코너에서 Shift를 누르고 놓아 미니 터보!</p></div><div><span>♡</span><h3>Good company, great race.</h3><p>버니와 세 친구. 결승선에서 만나요.</p></div></section></main><script src="track.js?v=8"></script><script src="engine.js?v=8"></script><script src="game.js?v=8"></script></body></html>
