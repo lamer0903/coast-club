@@ -51,6 +51,8 @@
       boost: 35,
       turbo: 0,
       turboTier: 0,
+      turboKick: 0,
+      turboVisual: 0,
       drift: 0,
       driftTier: 0,
       driftDirection: 0,
@@ -137,6 +139,7 @@
     const onRoad = Math.abs(s.x) <= 1.04,
       bend = curve(s.z),
       braking = !!(k.ArrowDown || k.s);
+    s.turboKick *= Math.exp(-dt * 10);
 
     // 드리프트 시작 조건: 도로 위, 속도 100 초과, 브레이크 없음, 충분한 코너와 같은 방향 조향.
     const validDrift =
@@ -157,6 +160,7 @@
         if (tier) {
           s.turboTier = Math.max(s.turboTier, tier);
           s.turbo = Math.max(s.turbo, [0, 0.9, 1.4, 2][tier]);
+          s.turboKick = 0.45 + tier * 0.18;
         }
         s.drift = s.driftTier = s.driftDirection = 0;
       } else {
@@ -172,6 +176,7 @@
       s.boost -= 30;
       s.turbo = 2;
       s.turboTier = 3;
+      s.turboKick = 1;
     }
     s.boostHeld = !!k[" "];
     s.turbo = Math.max(0, s.turbo - dt);
@@ -181,22 +186,29 @@
     // 가속·브레이크·터보를 반영해 속도를 갱신한다. 터보 단계마다 최고 속도가 다르다.
     const accelerating = k.ArrowUp || k.w,
       maxSpeed = s.turbo ? [0, 270, 295, 320][s.turboTier] : 225;
-    s.speed = clamp(
-      s.speed +
-        (accelerating ? 85 : -35) * dt -
-        (k.ArrowDown || k.s ? 170 * dt : 0),
-      0,
-      maxSpeed,
-    );
-    if (s.turbo)
-      s.speed = clamp(s.speed + (110 + s.turboTier * 25) * dt, 0, maxSpeed);
+    const acceleration = braking
+      ? -210
+      : (accelerating ? 85 : -35) +
+        (s.turbo ? 110 + s.turboTier * 25 + s.turboKick * 320 : 0);
+    // 종료 직후 초과 속도는 약 0.7초에 걸쳐 회수한다. 브레이크는 터보보다 우선한다.
+    s.speed = s.speed > maxSpeed
+      ? Math.max(maxSpeed, s.speed - (braking ? 260 : 145) * dt)
+      : clamp(s.speed + acceleration * dt, 0, maxSpeed);
+    const visualTarget = s.turbo ? 0.55 + s.turboTier * 0.15 : 0;
+    s.turboVisual += (visualTarget - s.turboVisual) *
+      (1 - Math.exp(-dt * (s.turbo ? 14 : 5)));
 
     // 조향에 따른 좌우 이동과 코너 바깥쪽으로 밀리는 힘을 합친다. 차체 회전은 별도로 완만하게 반응한다.
-    const desiredVx = (steer * (drifting ? 1.45 : 1.15) * s.speed) / 225;
-    s.vx += (desiredVx - s.vx) * Math.min(1, dt * 9);
+    const boostWeight = s.turbo ? 0.88 : 1,
+      desiredVx = (steer * (drifting ? 1.45 : 1.2) * s.speed * boostWeight) / 225,
+      countersteering = steer && steer * s.vx < 0,
+      grip = (countersteering ? 22 : steer ? 16 : drifting ? 7 : 12) *
+        (s.turbo ? 0.78 : 1);
+    s.vx += (desiredVx - s.vx) * (1 - Math.exp(-dt * grip));
     s.x += (s.vx - bend * (s.speed / 225) ** 2 * (drifting ? 0.8 : 1.15)) * dt;
-    s.omega += (((steer * s.speed) / 225) * 0.7 - s.angle * 2.2) * dt;
-    s.omega *= Math.pow(0.13, dt);
+    const targetAngle = clamp(s.vx * 0.19 + steer * 0.045 * s.speed / 225, -0.3, 0.3);
+    s.omega += (targetAngle - s.angle) * 75 * dt;
+    s.omega *= Math.exp(-12 * dt);
     s.angle = clamp(s.angle + s.omega * dt, -0.32, 0.32);
 
     // 바깥 경계에서는 튕기고, 도로 밖 모래에서는 감속하며 드리프트를 취소한다.

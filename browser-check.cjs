@@ -5,7 +5,10 @@ const assert = require("node:assert/strict"),
 const nodes = new Map(),
   events = {},
   context = new Proxy(
-    { createLinearGradient: () => ({ addColorStop() {} }) },
+    {
+      createLinearGradient: () => ({ addColorStop() {} }),
+      createRadialGradient: () => ({ addColorStop() {} }),
+    },
     { get: (o, k) => o[k] || (() => {}) },
   );
 function node(id) {
@@ -24,9 +27,49 @@ function node(id) {
   return nodes.get(id);
 }
 let nextFrame;
+// Web Audio 경계만 대체한다. 실제 soundFrame의 음량·주파수 출력과 상태 전환을 확인한다.
+class AudioParam {
+  value = 0;
+  setValueAtTime(value) {
+    assert(Number.isFinite(value));
+    this.value = value;
+  }
+  setTargetAtTime(value) { this.setValueAtTime(value); }
+  exponentialRampToValueAtTime(value) { this.setValueAtTime(value); }
+}
+class AudioNode {
+  gain = new AudioParam();
+  frequency = new AudioParam();
+  Q = new AudioParam();
+  connect() {}
+  start() {}
+  stop() {}
+}
+class AudioContext {
+  currentTime = 0;
+  sampleRate = 48000;
+  destination = {};
+  resume() {}
+  createOscillator() { return new AudioNode(); }
+  createGain() { return new AudioNode(); }
+  createBiquadFilter() { return new AudioNode(); }
+  createBufferSource() { return new AudioNode(); }
+  createBuffer(channels, length) {
+    const data = new Float32Array(length);
+    return { getChannelData: () => data };
+  }
+}
 const sandbox = {
   console,
   Math,
+  Path2D: class {
+    moveTo() {}
+    quadraticCurveTo() {}
+    bezierCurveTo() {}
+    closePath() {}
+    rect() {}
+    ellipse() {}
+  },
   devicePixelRatio: 1,
   Coast: require("./engine.js"),
   Track: require("./track.js"),
@@ -37,6 +80,7 @@ const sandbox = {
     querySelectorAll: () => [],
   },
   window: {
+    AudioContext,
     matchMedia: () => ({ matches: false }),
     addEventListener: (name, fn) => (events[name] = fn),
   },
@@ -67,6 +111,30 @@ node("start").onclick();
 assert.equal(node("speed").textContent > 0, true);
 nextFrame(200050);
 assert.equal(Number(node("speed").textContent), 0, "Restart must reset speed.");
+const run = (code) => vm.runInContext(code, sandbox);
+node("sound").onclick();
+run("mode = 'running'; state.rivals = []; state.speed = 200; Coast.step(state, {' ': true}, 1/60); render(); soundFrame();");
+assert(run("boostGain.gain.value > 0"), "Boost must produce audible airflow");
+node("sound").onclick();
+assert.equal(run("boostGain.gain.value"), 0, "Mute silences boost immediately");
+node("sound").onclick();
+node("pause").onclick();
+run("soundFrame()");
+assert.equal(run("boostGain.gain.value"), 0, "Pause silences boost");
+node("start").onclick();
+run("soundFrame()");
+assert(run("boostGain.gain.value > 0"), "Resume restores ongoing boost sound");
+run("start(); render(); soundFrame()");
+assert.equal(run("boostGain.gain.value"), 0, "Restart clears boost sound");
+assert.equal(run("state.turboVisual + state.turboKick"), 0, "Restart clears visual effects");
+sandbox.devicePixelRatio = 3;
+node("race").getBoundingClientRect = () => ({ width: 320, height: 560 });
+run("resize(); render()");
+assert.equal(node("race").width, 960, "High-density small screens retain sharp canvas edges");
+node("race").getBoundingClientRect = () => ({ width: 3840, height: 2160 });
+run("resize(); render()");
+assert(node("race").width * node("race").height <= 8000001,
+  "Large high-density screens must stay inside the pixel budget");
 console.log(
-  "PASS: canvas render calls, keyboard input, pause/resume, finish UI, restart",
+  "PASS: canvas render calls, keyboard input, pause/resume, finish UI, restart, boost audio/mute/reset, high-DPI budget",
 );
