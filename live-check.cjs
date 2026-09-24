@@ -43,7 +43,30 @@ const fs = require("node:fs"),
       deviceScaleFactor: 1,
       mobile: false,
     });
+    await send("Page.reload");
+    await new Promise((resolve) => setTimeout(resolve, 800));
     assert.equal(await evaluate("typeof Track.project"), "function");
+    const audioResult = await evaluate(`(async()=>{
+      requestAnimationFrame=()=>0;start();mode='running';state.speed=160;keys.ArrowUp=true;
+      if(muted)$('sound').click();soundFrame();await audio.resume();
+      const analyser=audio.createAnalyser();analyser.fftSize=2048;audioMaster.connect(analyser);
+      await new Promise(r=>setTimeout(r,250));
+      const samples=new Float32Array(analyser.fftSize);analyser.getFloatTimeDomainData(samples);
+      const rms=Math.sqrt(samples.reduce((sum,v)=>sum+v*v,0)/samples.length);
+      Coast.step(state,{' ':true},1/60);soundFrame();
+      await new Promise(r=>setTimeout(r,120));
+      const boost=boostGain.gain.value;
+      muted=true;soundFrame();await new Promise(r=>setTimeout(r,350));
+      analyser.getFloatTimeDomainData(samples);
+      const mutedRms=Math.sqrt(samples.reduce((sum,v)=>sum+v*v,0)/samples.length);
+      analyser.disconnect();audioMaster.disconnect(analyser);
+      return {context:audio.state,rms,mutedRms,boost};
+    })()`);
+    assert.equal(audioResult.context, "running");
+    assert(audioResult.rms > 0.005, "Real Web Audio must produce an engine signal");
+    assert(audioResult.boost > 0.05, "Boost must open its sustained jet audio layer");
+    assert(audioResult.mutedRms < 0.001, "Mute must silence all continuous audio layers");
+    console.log("PASS real Web Audio:", JSON.stringify(audioResult));
     await evaluate(
       "requestAnimationFrame=()=>0;start();mode='running';state.z=3800;state.speed=190;render();hud();",
     );

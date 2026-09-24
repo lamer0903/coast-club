@@ -21,6 +21,14 @@ let state = Coast.create(),
   audio,
   engineTone,
   engineGain,
+  engineFilter,
+  roadFilter,
+  roadGain,
+  driftFilter,
+  driftGain,
+  boostSub,
+  boostSubGain,
+  audioMaster,
   boostNoise,
   boostFilter,
   boostGain,
@@ -28,6 +36,61 @@ let state = Coast.create(),
   lastTier = 0;
 const touchDevice = window.matchMedia("(pointer: coarse)").matches;
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+
+// Local images load independently; fallback graphics keep the game playable.
+const graphics = {};
+let graphicsPending = 6, graphicsFailed = false;
+for (const [name, file] of Object.entries({
+  driver: "dva-kart.png", coast: "busan-coast.png", palm: "coastal-palm.png",
+  tracer: "tracer-kart.png", genji: "genji-kart.png", reaper: "reaper-kart.png",
+})) {
+  const image = new Image();
+  graphics[name] = image;
+  const settled = (failed) => {
+    graphicsFailed ||= failed;
+    graphicsPending--;
+    $("graphics-status").textContent = graphicsFailed
+      ? "일부 그래픽을 불러오지 못했습니다. 기본 그래픽으로 플레이할 수 있습니다. 새로고침으로 다시 시도하세요."
+      : graphicsPending ? "실사 그래픽 불러오는 중…" : "";
+  };
+  image.onload = () => settled(false);
+  image.onerror = () => settled(true);
+  image.src = `assets/${file}`;
+}
+const imageReady = (image) => image.complete && image.naturalWidth > 0;
+
+// Sample the same curve as the road once. This is a schematic of one lap;
+// the game's procedural course has separate start/end points, not a closed XY loop.
+const minimapPoints = [{ x: 0, y: 0 }];
+let mapHeading = 0;
+for (let z = 0; z < Track.LENGTH; z += 100) {
+  mapHeading += Track.curve(z + 50) * 100 / 4000;
+  const previous = minimapPoints[minimapPoints.length - 1];
+  minimapPoints.push({ x: previous.x + Math.cos(mapHeading) * 100,
+    y: previous.y + Math.sin(mapHeading) * 100 });
+}
+const mapXs = minimapPoints.map(p => p.x), mapYs = minimapPoints.map(p => p.y);
+const mapMinX = Math.min(...mapXs), mapMinY = Math.min(...mapYs);
+const mapSpanX = Math.max(...mapXs) - mapMinX || 1;
+const mapSpanY = Math.max(...mapYs) - mapMinY || 1;
+for (const p of minimapPoints) {
+  p.x = 14 + (p.x - mapMinX) / mapSpanX * 152;
+  p.y = 16 + (p.y - mapMinY) / mapSpanY * 56;
+}
+$("minimap-route").setAttribute("points", minimapPoints.map(p => `${p.x},${p.y}`).join(" "));
+const mapTransform = p => `translate(${p.x.toFixed(2)} ${p.y.toFixed(2)})`;
+$("minimap-start").setAttribute("transform", mapTransform(minimapPoints[0]));
+$("minimap-finish").setAttribute("transform", mapTransform(minimapPoints[minimapPoints.length - 1]));
+function minimapPosition(z, finished = false, lane = 0) {
+  if (finished) return minimapPoints[minimapPoints.length - 1];
+  const index = Track.wrap(z) / 100, i = Math.floor(index), t = index - i;
+  const a = minimapPoints[i], b = minimapPoints[i + 1];
+  const dx = b.x - a.x, dy = b.y - a.y, length = Math.hypot(dx, dy) || 1;
+  // A small lane offset separates racers driving side by side on the same segment.
+  const offset = Math.max(-1.2, Math.min(1.2, lane)) * 9;
+  return { x: a.x + dx * t - dy / length * offset,
+    y: a.y + dy * t + dx / length * offset };
+}
 
 // 브라우저 최고 기록을 읽는다. 저장 차단·잘못된 데이터가 있어도 게임은 시작한다.
 let records = {};
@@ -40,16 +103,18 @@ try {
       records[key] = saved[key];
 } catch {}
 
-// 고밀도 화면의 3배 해상도까지 사용하고, 큰 화면은 800만 픽셀로 제한한다.
+// CSS 크기의 가로·세로 3배로 렌더링한다. 큰 화면은 1600만 픽셀로 제한한다.
 function resize() {
   const rect = canvas.getBoundingClientRect();
   width = rect.width;
   height = rect.height;
-  const dpr = Math.min(devicePixelRatio || 1, 3,
-    Math.sqrt(8000000 / Math.max(1, width * height)));
-  canvas.width = width * dpr;
-  canvas.height = height * dpr;
+  const dpr = Math.min(3,
+    Math.sqrt(16000000 / Math.max(1, width * height)));
+  canvas.width = Math.floor(width * dpr);
+  canvas.height = Math.floor(height * dpr);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
 }
 new ResizeObserver(resize).observe(canvas);
 
@@ -80,6 +145,15 @@ function poly(points, color) {
 
 // 야자수 외형. s는 원근 배율, lean은 줄기가 기우는 방향이다.
 function palm(x, y, s, lean = 1) {
+  if (imageReady(graphics.palm)) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(s * lean, s);
+    ellipse(24, 3, 44, 7, "#26372d30");
+    ctx.drawImage(graphics.palm, -52, -172, 112, 172);
+    ctx.restore();
+    return;
+  }
   ctx.save();
   ctx.translate(x, y);
   ctx.scale(s, s);
@@ -139,6 +213,7 @@ function kart(x, y, s, color, animal, turn = 0, turbo = false) {
   ctx.translate(x, y);
   ctx.scale(s, s);
   ctx.rotate(turn);
+  ellipse(7, 12, 49, 13, "#183d4145");
   ellipse(0, 7, 43, 12, "#364d4430");
   if (turbo) {
     const flame = 44 + state.turboVisual * 20 + state.turboKick * 22 +
@@ -150,8 +225,32 @@ function kart(x, y, s, color, animal, turn = 0, turbo = false) {
       poly([[nozzle - 4, 0], [nozzle, flame * 0.5], [nozzle + 4, 0]], "#fff9df");
     }
   }
+  const sprite = graphics[animal === "dva" ? "driver" : animal];
+  if (sprite && imageReady(sprite)) {
+    ctx.drawImage(sprite, -53, animal === "tracer" ? -92 : -86, 106, 106);
+    if (animal !== "dva" && s > 0.6) {
+      rounded(-24, -104, 48, 13, 3, "#0a202de6");
+      ctx.fillStyle = "#f1f6f4";
+      ctx.font = "600 8px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText(animal.toUpperCase(), 0, -95);
+    }
+    ctx.restore();
+    return;
+  }
   rounded(-41, -28, 15, 34, 5, "#3e5055");
   rounded(26, -28, 15, 34, 5, "#3e5055");
+  // 타이어의 회전 홈과 금속 허브, 낮은 차체 그림자.
+  for (const side of [-1, 1]) {
+    const tx = side < 0 ? -41 : 26;
+    rounded(tx + 2, -26, 11, 30, 4, "#172b35");
+    for (let tread = 0; tread < 6; tread++) {
+      const ty = -25 + ((tread * 5 + state.z * 0.06) % 29);
+      rounded(tx + 2, ty, 11, 1.3, 0.5, "#78909388");
+    }
+    rounded(tx + (side < 0 ? 0 : 10), -19, 5, 17, 2, "#c1d6ce");
+  }
+  rounded(-28, -17, 56, 27, 8, "#283d43");
   const paint = ctx.createLinearGradient(-32, -29, 28, 8);
   paint.addColorStop(0, "#fff3dc");
   paint.addColorStop(0.3, color);
@@ -165,40 +264,37 @@ function kart(x, y, s, color, animal, turn = 0, turbo = false) {
   rounded(-36, -5, 72, 9, 4, color);
   rounded(-25, -3, 12, 5, 2, "#fff4cb");
   rounded(13, -3, 12, 5, 2, "#fff4cb");
+  poly([[-6, -28], [3, -28], [10, 1], [1, 1]], "#fff5dfc0");
+  rounded(-25, -10, 50, 5, 2, "#163c4655");
+  for (let vent = 0; vent < 5; vent++)
+    rounded(-16 + vent * 7, -9, 3, 4, 1, "#132e39");
+  for (const nozzle of [-12, 12]) {
+    ellipse(nozzle, 6, 6, 4, "#b1c5bf");
+    ellipse(nozzle, 6, 4, 2.5, turbo ? "#eaffff" : "#1b3038");
+  }
+  // 날개와 두 지지대에 별도의 명암을 줘 평평한 실루엣을 분리한다.
+  rounded(-25, -30, 4, 14, 1, "#334e54");
+  rounded(21, -30, 4, 14, 1, "#334e54");
+  rounded(-39, -34, 78, 7, 2, "#29434b");
+  rounded(-38, -35, 76, 3, 1, "#e7ede0");
   // 머리·귀·표정만 75%로 줄인다. 목 부근을 기준으로 축소해 카트 위 위치를 유지한다.
   ctx.save();
   ctx.translate(0, -20);
   ctx.scale(0.75, 0.75);
   ctx.translate(0, 20);
   ellipse(0, -36, 19, 18, "#fff6e8");
-  if (animal === "bunny") {
-    ellipse(-10, -63, 6, 21, "#fff6e8");
-    ellipse(10, -63, 6, 21, "#fff6e8");
-    ellipse(-10, -65, 2.5, 12, "#f2b5b2");
-    ellipse(10, -65, 2.5, 12, "#f2b5b2");
-  } else if (animal === "cat") {
-    poly(
-      [
-        [-18, -43],
-        [-17, -63],
-        [-4, -50],
-      ],
-      "#fff6e8",
-    );
-    poly(
-      [
-        [18, -43],
-        [17, -63],
-        [4, -50],
-      ],
-      "#fff6e8",
-    );
-  } else if (animal === "bear") {
-    ellipse(-14, -51, 9, 9, "#f0d7ae");
-    ellipse(14, -51, 9, 9, "#f0d7ae");
+  if (animal === "dva" || animal === "tracer") {
+    ellipse(0, -43, 19, 24, "#3c2928");
+    ellipse(0, -35, 12, 15, "#e7ba9d");
+    ellipse(0, -51, 16, 11, "#45302c");
+    rounded(-20, -43, 7, 16, 3, "#dd85ae");
+    rounded(13, -43, 7, 16, 3, "#dd85ae");
+  } else if (animal === "genji") {
+    ellipse(0, -40, 19, 23, "#9daeb1");
+    rounded(-16, -43, 32, 5, 2, "#b5f16d");
   } else {
-    ellipse(-12, -49, 8, 8, "#b5d9a2");
-    ellipse(12, -49, 8, 8, "#b5d9a2");
+    ellipse(0, -41, 21, 25, "#242832");
+    ellipse(0, -35, 12, 16, "#c7c8c3");
   }
   ellipse(-6, -35, 2, 3, "#3e5055");
   ellipse(6, -35, 2, 3, "#3e5055");
@@ -220,9 +316,9 @@ function drawCoast(points) {
   const shore = (p) => 1.82 + Math.sin(p.z / 850) * 0.1 + Math.sin(p.z / 310) * 0.035;
   const edge = points.map((p) => [p.x - p.w * shore(p), p.y]);
   const sand = ctx.createLinearGradient(0, height * 0.38, width * 0.7, height);
-  sand.addColorStop(0, "#f5d394");
-  sand.addColorStop(0.5, "#ffe4a8");
-  sand.addColorStop(1, "#eab875");
+  sand.addColorStop(0, "#cbbda0");
+  sand.addColorStop(0.5, "#d8c8a8");
+  sand.addColorStop(1, "#bda780");
   poly([[edge[0][0], height * 0.38], ...edge,
     [width * 4, height * 2], [width * 4, height * 0.38]], sand);
 
@@ -357,10 +453,10 @@ function dune(x, y, s, terrain) {
   shape.bezierCurveTo(164, -lift * shoulder, 180, -9, 246, 6);
   shape.closePath();
   const sand = ctx.createLinearGradient(-90, -lift, 110, 12);
-  sand.addColorStop(0, "#fff0bf");
-  sand.addColorStop(0.25, "#f6d99d");
-  sand.addColorStop(0.58, "#edc184");
-  sand.addColorStop(1, "#d7a26b");
+  sand.addColorStop(0, "#e2d4b5");
+  sand.addColorStop(0.25, "#d5c49e");
+  sand.addColorStop(0.58, "#beaa87");
+  sand.addColorStop(1, "#a58e70");
   ctx.fillStyle = sand;
   ctx.fill(shape);
   ctx.save();
@@ -426,6 +522,28 @@ function desertPlant(x, y, s, variant) {
       ctx.stroke();
     }
   }
+  ctx.restore();
+}
+
+// 코스 옆 랜드마크: 먼 곳에서도 다음 구간을 알아볼 수 있는 등대.
+function lighthouse(x, y, s) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(s, s);
+  ellipse(28, 4, 68, 12, "#345f5840");
+  poly([[-47, 6], [-34, -11], [24, -14], [53, 6]], "#b39870");
+  const wall = ctx.createLinearGradient(-23, 0, 25, 0);
+  wall.addColorStop(0, "#fff9dd");
+  wall.addColorStop(0.45, "#f1e9cf");
+  wall.addColorStop(1, "#94b3af");
+  poly([[-26, 0], [-17, -133], [17, -133], [26, 0]], wall);
+  poly([[-21, -75], [-20, -96], [20, -96], [21, -75]], "#d57b66");
+  rounded(-6, -24, 12, 24, 5, "#294e59");
+  rounded(-4, -117, 8, 14, 3, "#376675");
+  rounded(-24, -139, 48, 6, 2, "#365560");
+  rounded(-16, -162, 32, 23, 2, "#84ced0");
+  rounded(-3, -162, 5, 23, 0, "#f9d693");
+  poly([[-26, -163], [0, -183], [26, -163]], "#c5705e");
   ctx.restore();
 }
 
@@ -545,12 +663,27 @@ function render() {
     );
   }
   const ocean = ctx.createLinearGradient(0, horizon, 0, height);
-  ocean.addColorStop(0, "#147eac");
-  ocean.addColorStop(0.22, "#0cabc1");
-  ocean.addColorStop(0.6, "#19c6c8");
-  ocean.addColorStop(1, "#6ce0d0");
+  ocean.addColorStop(0, "#386378");
+  ocean.addColorStop(0.22, "#3f7889");
+  ocean.addColorStop(0.6, "#518f94");
+  ocean.addColorStop(1, "#7aafa6");
   ctx.fillStyle = ocean;
   ctx.fillRect(0, horizon, width, height - horizon);
+  if (imageReady(graphics.coast)) {
+    const photo = graphics.coast;
+    // Bounded panoramic pan avoids a visible wrap seam during long races.
+    const cropWidth = photo.naturalWidth * 0.78;
+    const cropX = (photo.naturalWidth - cropWidth) *
+      (0.5 + Math.sin(sceneryHeading * 0.35 + state.x * 0.02) * 0.5);
+    const waterline = Math.floor(photo.naturalHeight * 0.72);
+    ctx.drawImage(photo, cropX, 0, cropWidth, waterline,
+      0, 0, width, horizon + 1);
+    ctx.save();
+    ctx.globalAlpha = 0.55;
+    ctx.drawImage(photo, cropX, waterline, cropWidth, photo.naturalHeight - waterline,
+      0, horizon, width, height - horizon);
+    ctx.restore();
+  }
   // 한낮의 강한 햇빛을 수면 위 여러 개의 작은 반사광으로 분산한다.
   for (let i = 0; i < (width < 700 ? 32 : 64); i++) {
     const depth = i / 64, y = horizon + 3 + depth * depth * height * 0.65;
@@ -589,8 +722,30 @@ function render() {
         [b.x + b.w, b.y + 1],
         [b.x - b.w, b.y + 1],
       ],
-      stripe ? "#68888c" : "#65858a",
+      stripe ? "#555c5e" : "#535a5c",
     );
+    // 노면의 입자는 월드 좌표에 고정해 정차 중 반짝이거나 기어가지 않는다.
+    if (a.y > horizon + 24 && a.y < height && b.y > a.y) {
+      const asphalt = new Path2D();
+      for (let grain = 0; grain < (width < 700 ? 8 : 22); grain++) {
+        const seed = a.z * 0.13 + grain * 17;
+        const lane = sceneryRandom(seed) * 1.94 - 0.97;
+        const depth = sceneryRandom(seed + 8);
+        const gx = a.x + (b.x - a.x) * depth + lane * (a.w + (b.w - a.w) * depth);
+        const gy = a.y + (b.y - a.y) * depth;
+        asphalt.rect(gx, gy, Math.max(0.6, a.scale * 2), Math.max(0.4, a.scale));
+      }
+      ctx.fillStyle = "#dbe2cd35";
+      ctx.fill(asphalt);
+    }
+    for (const edge of [-0.95, 0.95])
+      poly([[a.x + a.w * edge, a.y], [a.x + a.w * (edge + 0.012), a.y],
+        [b.x + b.w * (edge + 0.012), b.y + 1], [b.x + b.w * edge, b.y + 1]], "#fff7dcbb");
+    // 코너의 고무 자국: 도로 표면에 원근으로 붙어 있는 두 줄.
+    if (Math.abs(Track.curve(a.z)) > 0.4)
+      for (const lane of [-0.16, 0.02])
+        poly([[a.x + a.w * lane, a.y], [a.x + a.w * (lane + 0.035), a.y],
+          [b.x + b.w * (lane + 0.035), b.y + 1], [b.x + b.w * lane, b.y + 1]], "#213e4429");
     if (Math.floor(a.z / 110) % 3 === 0)
       for (const lane of [-0.33, 0.33])
         poly(
@@ -623,6 +778,26 @@ function render() {
 
   // 돛배·야자수·표지판·카트는 깊이 정렬 후 그리기 위해 모아 둔다.
   const objects = [];
+  for (let z = Math.ceil((state.z - 240) / 180) * 180; z < state.z + 5200; z += 180) {
+    const a = project(z, -1.16), b = project(z + 180, -1.16);
+    objects.push({ y: a.y, draw: () => {
+      const lift = a.scale * 32, farLift = b.scale * 32;
+      poly([[a.x, a.y - lift], [b.x, b.y - farLift],
+        [b.x, b.y - farLift + b.scale * 7], [a.x, a.y - lift + a.scale * 7]], "#c5d8cc");
+      poly([[a.x, a.y - lift + a.scale * 7], [b.x, b.y - farLift + b.scale * 7],
+        [b.x, b.y - farLift + b.scale * 10], [a.x, a.y - lift + a.scale * 10]], "#496f74");
+      rounded(a.x - a.scale * 2, a.y - lift, a.scale * 4, lift, a.scale, "#72938f");
+      rounded(a.x - a.scale * 3, a.y - lift + a.scale * 2, a.scale * 6, a.scale * 3, a.scale, "#fff0bd");
+    }});
+  }
+  for (const landmark of [1800, 9500, 15800]) {
+    let z = Math.floor(state.z / Track.LENGTH) * Track.LENGTH + landmark;
+    if (z < state.z - 240) z += Track.LENGTH;
+    if (z - state.z < 6000) {
+      const p = project(z, -2.15);
+      objects.push({ y: p.y, draw: () => lighthouse(p.x, p.y, p.scale * 1.5) });
+    }
+  }
   for (const terrain of desertFeatures) {
     const lap = Math.floor(state.z / Track.LENGTH);
     for (let cycle = lap - 1; cycle <= lap + 1; cycle++) {
@@ -691,7 +866,7 @@ function render() {
   }
   for (const r of [
     ...state.rivals,
-    { ...state, color: "#ed9d9e", animal: "bunny", player: true },
+    { ...state, color: "#dd85ae", animal: "dva", player: true },
   ]) {
     const distance = r.z - state.z;
     if (distance < -240 || distance > 6000) continue;
@@ -720,14 +895,20 @@ function render() {
   const player = project(state.z, state.x);
   if (state.drift > 0) {
     const color = ["#dffaff", "#62dffc", "#ffb64d", "#ff68bb"][state.driftTier];
-    for (let i = 0; i < 8; i++)
+    for (let i = 0; i < 18; i++) {
+      const phase = (i / 18 + (reducedMotion.matches ? 0 : state.time * 1.8)) % 1;
+      const side = i % 2 ? 1 : -1;
+      ellipse(player.x + side * player.w * 0.18 + state.driftDirection * phase * 36,
+        player.y + phase * 47, 4 + phase * 18, 2 + phase * 9,
+        `rgba(224,234,219,${(1 - phase) * 0.25})`);
       ellipse(
-        player.x + (i % 2 ? 1 : -1) * player.w * 0.18,
-        player.y + Math.random() * 16,
-        3,
-        3,
+        player.x + side * (player.w * 0.18 + phase * 12),
+        player.y + phase * 26,
+        1 + (1 - phase) * 2,
+        1 + (1 - phase) * 2,
         color,
       );
+    }
   }
   if (!reducedMotion.matches && (state.speed > 190 || state.turboVisual > 0.05))
     for (let i = 0; i < 10 + Math.floor(state.turboVisual * 22); i++) {
@@ -767,6 +948,9 @@ function formatTime(t) {
 
 // HUD(경기 정보): 순위·랩·시간·속도·부스터·최고 기록과 현재 액션 안내를 갱신한다.
 function hud() {
+  $("minimap-player").setAttribute("transform", mapTransform(minimapPosition(state.z, state.done, state.x)));
+  for (const rival of state.rivals)
+    $(`minimap-${rival.animal}`).setAttribute("transform", mapTransform(minimapPosition(rival.z, false, rival.x)));
   const position = 1 + state.rivals.filter((r) => r.z > state.z).length,
     tierNames = ["", "BLUE", "ORANGE", "PINK"];
   $("position").innerHTML = `${position}<span>/4</span>`;
@@ -800,57 +984,138 @@ function hud() {
                 : "코너 방향 + SHIFT · 놓아서 터보";
 }
 
-// 속도에 따라 엔진음 높이를 바꾸고, 드리프트 단계가 올라갈 때 알림음을 낸다.
+// Three-second PCM loops: irregular combustion transients and separate noise beds.
+// No sustained sine/periodic-wave voices: engine pitch comes from exhaust playback.
+function soundBuffer(combustion = false) {
+  const buffer = audio.createBuffer(1, audio.sampleRate * 3, audio.sampleRate);
+  const data = buffer.getChannelData(0);
+  let low = 0, age = 0, interval = 1 / 72, strength = 1;
+  for (let i = 0; i < data.length; i++) {
+    const white = Math.random() * 2 - 1;
+    low = low * 0.94 + white * 0.06;
+    age += 1 / audio.sampleRate;
+    if (age >= interval) {
+      age -= interval;
+      interval = (0.86 + Math.random() * 0.28) / 72;
+      strength = 0.7 + Math.random() * 0.3;
+    }
+    const pulse = Math.exp(-age * 310) * strength;
+    const sample = combustion
+      ? pulse * (Math.sin(age * 2 * Math.PI * 95) * 0.45 + white * 1.15) + low * 0.6
+      : white * 0.7 + low * 0.3;
+    // Taper the seam so looping and one-shot starts do not click.
+    const edge = Math.min(1, i / 160, (data.length - 1 - i) / 160);
+    data[i] = sample * edge * 0.7;
+  }
+  return buffer;
+}
+
+// Nodes and PCM are allocated once, never during a normal animation frame.
 function soundFrame() {
   if (audio && !engineTone) {
-    engineTone = audio.createOscillator();
+    audioMaster = audio.createGain();
+    audioMaster.gain.value = 0.65;
+    const limiter = audio.createDynamicsCompressor();
+    limiter.threshold.value = -12;
+    limiter.knee.value = 12;
+    limiter.ratio.value = 4;
+    limiter.attack.value = 0.004;
+    limiter.release.value = 0.18;
+    audioMaster.connect(limiter);
+    limiter.connect(audio.destination);
+    engineTone = audio.createBufferSource();
+    engineTone.buffer = soundBuffer(true);
+    engineTone.loop = true;
     engineGain = audio.createGain();
-    engineTone.type = "triangle";
+    const exhaustHighpass = audio.createBiquadFilter();
+    exhaustHighpass.type = "highpass";
+    exhaustHighpass.frequency.value = 45;
+    exhaustHighpass.Q.value = 0.5;
+    engineFilter = audio.createBiquadFilter();
+    engineFilter.type = "lowpass";
+    engineFilter.Q.value = 0.45;
     engineGain.gain.value = 0;
-    engineTone.connect(engineGain);
-    engineGain.connect(audio.destination);
+    engineTone.connect(exhaustHighpass);
+    exhaustHighpass.connect(engineFilter);
+    engineFilter.connect(engineGain);
+    engineGain.connect(audioMaster);
     engineTone.start();
-    // 한 번 만든 노이즈를 재사용해 발동 시 분사음과 지속 중 바람 소리를 연결한다.
-    const buffer = audio.createBuffer(1, audio.sampleRate, audio.sampleRate),
-      samples = buffer.getChannelData(0);
-    for (let i = 0; i < samples.length; i++) samples[i] = Math.random() * 2 - 1;
+    // Boost: a broad air jet and a short low-frequency pressure hit, no pitch slide.
     boostNoise = audio.createBufferSource();
-    boostNoise.buffer = buffer;
+    boostNoise.buffer = soundBuffer();
     boostNoise.loop = true;
     boostFilter = audio.createBiquadFilter();
     boostFilter.type = "bandpass";
-    boostFilter.Q.value = 0.7;
+    boostFilter.Q.value = 0.45;
     boostGain = audio.createGain();
     boostGain.gain.value = 0;
     boostNoise.connect(boostFilter);
     boostFilter.connect(boostGain);
-    boostGain.connect(audio.destination);
+    boostGain.connect(audioMaster);
     boostNoise.start();
+    roadFilter = audio.createBiquadFilter();
+    roadFilter.type = "lowpass";
+    roadFilter.Q.value = 0.45;
+    roadGain = audio.createGain();
+    roadGain.gain.value = 0;
+    const roadNoise = audio.createBufferSource();
+    roadNoise.buffer = soundBuffer();
+    roadNoise.loop = true;
+    roadNoise.connect(roadFilter);
+    roadNoise.start();
+    roadFilter.connect(roadGain);
+    roadGain.connect(audioMaster);
+    driftFilter = audio.createBiquadFilter();
+    driftFilter.type = "bandpass";
+    driftFilter.Q.value = 1.1;
+    driftGain = audio.createGain();
+    driftGain.gain.value = 0;
+    const tireNoise = audio.createBufferSource();
+    tireNoise.buffer = soundBuffer();
+    tireNoise.loop = true;
+    tireNoise.connect(driftFilter);
+    driftFilter.connect(driftGain);
+    driftGain.connect(audioMaster);
+    tireNoise.start();
+    boostSub = audio.createBiquadFilter();
+    boostSub.type = "lowpass";
+    boostSub.frequency.value = 180;
+    boostSub.Q.value = 0.65;
+    boostSubGain = audio.createGain();
+    boostSubGain.gain.value = 0;
+    boostNoise.connect(boostSub);
+    boostSub.connect(boostSubGain);
+    boostSubGain.connect(audioMaster);
   }
   if (engineTone) {
-    engineTone.frequency.setTargetAtTime(
-      45 + state.speed * 0.65 + state.turboVisual * 50,
-      audio.currentTime,
-      0.08,
-    );
+    const audible = !muted && mode === "running",
+      throttle = !(keys.ArrowDown || keys.s) && (keys.ArrowUp || keys.w || touchDevice),
+      speed = Math.max(0, state.speed),
+      gear = Math.min(5, Math.floor(speed / 76)),
+      rev = Math.min(1, (speed - gear * 76) / 76),
+      rate = 0.8 + gear * 0.065 + rev * 0.85 + (throttle ? 0.12 : 0),
+      kick = state.turbo ? state.turboKick : 0,
+      now = audio.currentTime;
+    audioMaster.gain.setTargetAtTime(muted || mode === "paused" ? 0 : 0.65, now, 0.01);
+    engineTone.playbackRate.setTargetAtTime(rate, now, 0.09);
+    engineFilter.frequency.setTargetAtTime(650 + rev * 550 + (throttle ? 600 : 0), now, 0.1);
     engineGain.gain.setTargetAtTime(
-      !muted && mode === "running" ? 0.025 : 0,
-      audio.currentTime,
-      0.03,
+      audible ? 0.3 + (throttle ? 0.18 : 0) + rev * 0.06 : 0, now, 0.035,
     );
-    boostFilter.frequency.setTargetAtTime(
-      700 + state.turboVisual * 1500 + state.turboKick * 1700,
-      audio.currentTime, 0.045,
-    );
+    roadFilter.frequency.setTargetAtTime(220 + speed * 2.4, now, 0.1);
+    roadGain.gain.setTargetAtTime(audible ? Math.min(0.14, speed / 2200) : 0, now, 0.06);
+    const slip = state.drift ? Math.min(1, speed / 150) : 0;
+    driftFilter.frequency.setTargetAtTime(1500 + speed * 2 + Math.abs(state.angle) * 350, now, 0.09);
+    driftGain.gain.setTargetAtTime(audible ? slip * (0.24 + Math.sin(state.time * 17) * 0.018) : 0, now, 0.035);
+    boostFilter.frequency.setTargetAtTime(1100 + state.turboVisual * 600, now, 0.08);
     boostGain.gain.setTargetAtTime(
-      !muted && mode === "running"
-        ? state.turboVisual * 0.045 + (state.turbo ? state.turboKick * 0.09 : 0)
-        : 0,
-      audio.currentTime, 0.025,
+      audible ? state.turboVisual * 0.3 + kick * 0.16 : 0, now, 0.025,
     );
+    boostSubGain.gain.setTargetAtTime(audible ? state.turboVisual * 0.12 + kick * 0.65 : 0, now, 0.02);
   }
-  if (state.driftTier > lastTier) beep(450 + state.driftTier * 220);
+  const tierChanged = state.driftTier > lastTier;
   lastTier = state.driftTier;
+  if (mode === "running" && tierChanged) beep(320 + state.driftTier * 80);
 }
 
 // 완주 액션: 최고 기록을 저장하고 순위·이전 기록과의 차이·재시작 버튼을 표시한다.
@@ -884,21 +1149,27 @@ function finish() {
   $("start").innerHTML = "RACE AGAIN <span>↗</span>";
 }
 
-// 짧은 효과음을 합성한다. 사용자 소리 켜기 액션 이후 AudioContext를 생성한다.
+// Dry mechanical transients for countdown, drift charge and impacts; no sine beeps.
 function beep(frequency = 600) {
   if (muted) return;
   audio ??= new window.AudioContext();
   audio.resume();
-  const osc = audio.createOscillator(),
-    gain = audio.createGain();
-  osc.frequency.value = frequency;
-  osc.type = "sine";
-  gain.gain.setValueAtTime(0.07, audio.currentTime);
-  gain.gain.exponentialRampToValueAtTime(0.001, audio.currentTime + 0.15);
-  osc.connect(gain);
-  gain.connect(audio.destination);
-  osc.start();
-  osc.stop(audio.currentTime + 0.16);
+  if (!engineTone) soundFrame();
+  const source = audio.createBufferSource(), filter = audio.createBiquadFilter(),
+    gain = audio.createGain(), now = audio.currentTime;
+  source.buffer = boostNoise.buffer;
+  filter.type = "bandpass";
+  filter.frequency.value = frequency;
+  filter.Q.value = 0.8;
+  gain.gain.setValueAtTime(0, now);
+  gain.gain.linearRampToValueAtTime(0.18, now + 0.004);
+  gain.gain.exponentialRampToValueAtTime(0.001, now + 0.085);
+  source.connect(filter);
+  filter.connect(gain);
+  gain.connect(audioMaster);
+  source.start(now, 0.1);
+  source.stop(now + 0.09);
+  source.onended = () => { source.disconnect(); filter.disconnect(); gain.disconnect(); };
 }
 
 // 시작/재시작 액션: 경기·입력·효과음 상태를 초기화하고 3초 카운트다운으로 전환한다.

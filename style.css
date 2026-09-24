@@ -95,9 +95,17 @@ h2 { font-size: clamp(24px, 2.8vw, 34px); margin: 18px 0 0; letter-spacing: -1px
 .primary span { margin-left: 32px; font-size: 18px; }
 .launch-card > small { display: block; margin-top: 22px; letter-spacing: 0; font-size: 11px; line-height: 1.7; color: #bbd3d5; }
 .bottom-hud { position: absolute; left: 24px; right: 24px; bottom: 22px; display: flex; align-items: end; justify-content: space-between; gap: 12px; pointer-events: none; }
+.driver-panel { display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; }
+.minimap { width: 180px; padding: 10px 10px 5px; border: 1px solid #d8fff13b; border-radius: 12px; background: var(--panel); }
+.minimap-heading { display: flex; align-items: center; justify-content: space-between; font-size: 10px; color: #dbece8; }
+.minimap-heading span { color: #f5b5d5; }
+.minimap-heading span::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 5px; border-radius: 50%; background: #ed8dbd; }
+.minimap svg { display: block; width: 100%; height: auto; overflow: visible; }
+.minimap text { fill: #dbece8; font: 10px sans-serif; }
 .driver { display: flex; gap: 12px; align-items: center; padding: 10px 16px 10px 10px; border-radius: 14px; }
-.driver-avatar { background: #3c686c; border: 1px solid #bcddd440; border-radius: 10px; width: 44px; height: 44px; display: grid; place-items: center; }
-.driver-avatar svg { width: 36px; height: 36px; }
+.driver-avatar { background: #3c686c url("assets/dva-portrait-scene.png") 49% 19% / 360% auto; border: 1px solid #df99bd80; border-radius: 10px; width: 44px; height: 44px; flex-shrink: 0; }
+#graphics-status { margin: 10px 0 0; color: #d5e5e2; font-size: 12px; line-height: 1.6; }
+#graphics-status:empty { display: none; }
 .driver small, .driver b { display: block; }
 .driver small { font-size: 9px; color: var(--mint); }
 .driver b { font-size: 12px; margin-top: 5px; }
@@ -122,7 +130,7 @@ h3 { font: 500 14px "Space Grotesk", sans-serif; margin: 0 0 8px; }
 .touch button { min-width: 52px; height: 52px; padding: 0 10px; border: 1px solid #c9f6e875; background: #153c49eb; color: #e9fff5; border-radius: 12px; font-size: 11px; font-weight: 700; touch-action: none; user-select: none; }
 .touch button[data-key="Shift"] { margin-left: auto; }
 .touch button[data-key=" "] { background: #ffc092; color: #173540; border-color: #ffe0b5; }
-@media (pointer: coarse) { .touch { display: flex; } }
+@media (pointer: coarse) { .touch { display: flex; } .driver-panel .driver { display: none; } }
 @media (max-width: 1000px) {
   h1 { font-size: 42px; }
   h1 br { display: block; }
@@ -153,6 +161,8 @@ h3 { font: 500 14px "Space Grotesk", sans-serif; margin: 0 0 8px; }
   .record-strip { top: 90px; left: 12px; right: 12px; flex-wrap: wrap; gap: 5px; font-size: 9px; }
   .bottom-hud { left: 12px; right: 12px; bottom: 14px; }
   .driver { display: none; }
+  .minimap { width: 112px; padding: 8px 7px 4px; border-radius: 10px; }
+  .minimap-heading { font-size: 9px; }
   .speed { margin-left: auto; min-width: 122px; padding: 12px 14px; }
   .speed > b { font-size: 40px; }
   #notice { position: absolute; bottom: 204px; left: 0; right: 0; max-width: 100%; margin: 0 auto; width: fit-content; font-size: 10px; letter-spacing: 0; }

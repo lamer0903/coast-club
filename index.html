@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Coast Club · 해변 카트 레이싱</title>
-    <link rel="stylesheet" href="style.css?v=11" />
+    <link rel="stylesheet" href="style.css?v=13" />
   </head>
   <body>
     <!-- 페이지 상단: 로고, 날씨 표시, 소리 켜기/끄기 -->
@@ -56,7 +56,7 @@
           <div class="launch-card">
             <div class="badge">COAST CLUB · SUNSHINE RUN</div>
             <h2>햇살 속으로, 풀 스피드.</h2>
-            <p>청록빛 파도와 황금빛 사막 사이,<br />버니와 함께 나만의 레이싱 라인을 찾아보세요.</p>
+            <p>부산의 바다와 모래언덕 사이,<br />디바와 함께 나만의 레이싱 라인을 찾아보세요.</p>
             <button id="start" class="primary">LET’S RACE <span>↗</span></button
             ><small
               >방향키 / WASD · 코너에서 Shift → 놓아서 터보 · 터치: 자동
@@ -67,9 +67,23 @@
 
         <!-- 하단 경기 정보: 운전자, 액션 안내, 속도, 부스터 잔량 -->
         <div class="bottom-hud">
-          <div class="driver">
-            <span aria-hidden="true" class="driver-avatar"><svg viewBox="0 0 40 40" fill="none"><ellipse cx="14" cy="11" rx="4" ry="9" fill="#fff5df"/><ellipse cx="26" cy="11" rx="4" ry="9" fill="#fff5df"/><ellipse cx="20" cy="26" rx="13" ry="11" fill="#fff5df"/><circle cx="15" cy="25" r="1.5" fill="#143c45"/><circle cx="25" cy="25" r="1.5" fill="#143c45"/><path d="M18 30Q20 33 22 30" stroke="#143c45" stroke-width="1.5"/></svg></span>
-            <div><small>YOUR DRIVER</small><b>Bunny / 버니</b></div>
+          <div class="driver-panel">
+            <div class="minimap">
+              <div class="minimap-heading"><b>코스</b><span>디바</span></div>
+              <svg viewBox="0 0 180 100" role="img" aria-label="코스 미니맵. S는 출발, F는 도착. 분홍색은 디바, 주황색은 트레이서, 초록색은 겐지, 밝은 회색은 리퍼입니다.">
+                <polyline id="minimap-route" fill="none" stroke="#82a4aa" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" />
+                <g id="minimap-start"><path d="M0 -7V7" stroke="#dbece8" stroke-width="2"/><text x="0" y="19" text-anchor="middle">S</text></g>
+                <g id="minimap-finish"><path d="M0 -7V7" stroke="#dbece8" stroke-width="2"/><text x="0" y="19" text-anchor="middle">F</text></g>
+                <g id="minimap-tracer"><title>트레이서</title><circle r="4" fill="#ffb254" stroke="#102e3a" stroke-width="1.5"/></g>
+                <g id="minimap-genji"><title>겐지</title><circle r="4" fill="#b4ed77" stroke="#102e3a" stroke-width="1.5"/></g>
+                <g id="minimap-reaper"><title>리퍼</title><circle r="4" fill="#d0d4df" stroke="#102e3a" stroke-width="1.5"/></g>
+                <g id="minimap-player"><title>디바 · 내 위치</title><circle r="5" fill="#ed8dbd" stroke="#fff5fa" stroke-width="2"/></g>
+              </svg>
+            </div>
+            <div class="driver">
+              <span aria-hidden="true" class="driver-avatar"></span>
+              <div><small>YOUR DRIVER</small><b>D.Va / 디바</b></div>
+            </div>
           </div>
           <div id="notice" role="status">SEE YOU AT THE FINISH LINE ♡</div>
           <div class="speed">
@@ -90,6 +104,7 @@
           ><button data-key="ArrowDown" aria-label="브레이크">BRAKE</button>
         </div>
       </section>
+      <p id="graphics-status" role="status">실사 그래픽 불러오는 중…</p>
       <footer>
         <div><span class="dot"></span> A LITTLE ESCAPE, A LOT OF FUN.</div>
         <div class="controls">
@@ -113,13 +128,13 @@
         <div>
           <span aria-hidden="true">03</span>
           <h3>Good company, great race.</h3>
-          <p>버니와 세 친구. 결승선에서 만나요.</p>
+          <p>디바, 트레이서, 겐지, 리퍼. 결승선에서 만나요.</p>
         </div>
       </section>
     </main>
     <!-- 실행 순서: 코스 정의 → 게임 규칙 → 화면 및 입력. 외부 빌드 없이 그대로 실행한다. -->
     <script src="track.js?v=8"></script>
-    <script src="engine.js?v=11"></script>
-    <script src="game.js?v=12"></script>
+    <script src="engine.js?v=12"></script>
+    <script src="game.js?v=16"></script>
   </body>
 </html>

@@ -20,7 +20,8 @@ function node(id) {
       dataset: {},
       classList: { add() {}, remove() {} },
       querySelector: (selector) => node(id + selector),
-      setAttribute() {},
+      attributes: {},
+      setAttribute(name, value) { this.attributes[name] = String(value); },
       getBoundingClientRect: () => ({ width: 1200, height: 580 }),
       getContext: () => context,
     });
@@ -36,11 +37,20 @@ class AudioParam {
   }
   setTargetAtTime(value) { this.setValueAtTime(value); }
   exponentialRampToValueAtTime(value) { this.setValueAtTime(value); }
+  linearRampToValueAtTime(value) { this.setValueAtTime(value); }
+  cancelScheduledValues() {}
 }
 class AudioNode {
   gain = new AudioParam();
   frequency = new AudioParam();
+  playbackRate = new AudioParam();
   Q = new AudioParam();
+  threshold = new AudioParam();
+  knee = new AudioParam();
+  ratio = new AudioParam();
+  attack = new AudioParam();
+  release = new AudioParam();
+  setPeriodicWave() {}
   connect() {}
   start() {}
   stop() {}
@@ -54,6 +64,8 @@ class AudioContext {
   createGain() { return new AudioNode(); }
   createBiquadFilter() { return new AudioNode(); }
   createBufferSource() { return new AudioNode(); }
+  createPeriodicWave() { return {}; }
+  createDynamicsCompressor() { return new AudioNode(); }
   createBuffer(channels, length) {
     const data = new Float32Array(length);
     return { getChannelData: () => data };
@@ -62,6 +74,7 @@ class AudioContext {
 const sandbox = {
   console,
   Math,
+  Image: class { complete = false; naturalWidth = 0; naturalHeight = 0; },
   Path2D: class {
     moveTo() {}
     quadraticCurveTo() {}
@@ -91,6 +104,29 @@ const sandbox = {
 };
 vm.createContext(sandbox);
 vm.runInContext(fs.readFileSync(__dirname + "/game.js", "utf8"), sandbox);
+vm.runInContext("hud()", sandbox);
+assert(node("minimap-route").attributes.points?.length > 100, "Minimap must show the course");
+const mapStart = node("minimap-player").attributes.transform;
+vm.runInContext("state.z=Track.LENGTH/2;hud()", sandbox);
+assert.notEqual(node("minimap-player").attributes.transform, mapStart, "Player marker must follow race progress");
+vm.runInContext("state.z=Track.LENGTH;hud()", sandbox);
+assert.equal(node("minimap-player").attributes.transform, mapStart, "A new lap wraps to the start");
+vm.runInContext("state.done=true;hud()", sandbox);
+assert.notEqual(node("minimap-player").attributes.transform, mapStart, "Finished player stays at the finish");
+vm.runInContext("state=Coast.create();hud()", sandbox);
+for (const hero of ["tracer", "genji", "reaper"])
+  assert(node(`minimap-${hero}`).attributes.transform, "Every rival must appear on the map");
+assert.deepEqual(sandbox.Coast.create().rivals.map(r => r.animal), ["tracer", "genji", "reaper"],
+  "All rivals must use Overwatch characters");
+vm.runInContext("resize()", sandbox);
+assert.equal(node("race").width, 3600, "Standard screens must render at 3x width");
+assert.equal(node("race").height, 1740, "Standard screens must render at 3x height");
+const defaultRect = node("race").getBoundingClientRect;
+node("race").getBoundingClientRect = () => ({ width: 3840, height: 2160 });
+vm.runInContext("resize()", sandbox);
+assert(node("race").width * node("race").height <= 16000000, "Large canvases must respect the memory budget");
+node("race").getBoundingClientRect = defaultRect;
+vm.runInContext("resize()", sandbox);
 node("start").onclick();
 for (let t = 0; t < 3200; t += 50) nextFrame(t);
 events.keydown({ key: "ArrowUp", preventDefault() {} });
@@ -127,14 +163,47 @@ assert(run("boostGain.gain.value > 0"), "Resume restores ongoing boost sound");
 run("start(); render(); soundFrame()");
 assert.equal(run("boostGain.gain.value"), 0, "Restart clears boost sound");
 assert.equal(run("state.turboVisual + state.turboKick"), 0, "Restart clears visual effects");
+run("mode='running';state.speed=120;keys.ArrowUp=false;soundFrame()");
+const coastPitch = run("engineTone.playbackRate.value");
+run("keys.ArrowUp=true;soundFrame()");
+assert(run("engineTone.playbackRate.value") > coastPitch,
+  "Throttle must raise engine revs at the same road speed");
+run("state.speed=74;soundFrame()");
+const beforeShift = run("engineTone.playbackRate.value");
+run("state.speed=77;soundFrame()");
+assert(run("engineTone.playbackRate.value") < beforeShift,
+  "Upshift must drop engine pitch instead of rising endlessly");
+run("state.speed=180;state.drift=0;soundFrame()");
+assert.equal(run("driftGain.gain.value"), 0, "Tire slip must be silent during straight driving");
+run("state.drift=.8;soundFrame()");
+assert(run("driftGain.gain.value") > 0, "Drifting must open a separate tire-friction layer");
+run("muted=true;soundFrame()");
+assert.equal(run("driftGain.gain.value + engineGain.gain.value + boostGain.gain.value + boostSubGain.gain.value + roadGain.gain.value"), 0,
+  "Mute must silence all continuous sound layers");
+run("muted=false;state.drift=0;soundFrame()");
 sandbox.devicePixelRatio = 3;
 node("race").getBoundingClientRect = () => ({ width: 320, height: 560 });
 run("resize(); render()");
 assert.equal(node("race").width, 960, "High-density small screens retain sharp canvas edges");
 node("race").getBoundingClientRect = () => ({ width: 3840, height: 2160 });
 run("resize(); render()");
-assert(node("race").width * node("race").height <= 8000001,
+assert(node("race").width * node("race").height <= 16000000,
   "Large high-density screens must stay inside the pixel budget");
+const drawnAssets = [];
+context.drawImage = (image) => drawnAssets.push(image.src);
+run(`Object.values(graphics).forEach(image => {
+  image.complete = true; image.naturalWidth = 1024; image.naturalHeight = 1024; image.onload();
+}); start(); mode='running'; render();`);
+assert(drawnAssets.includes("assets/dva-kart.png"), "The player must draw the D.Va sprite");
+for (const hero of ["tracer", "genji", "reaper"])
+  assert(drawnAssets.includes(`assets/${hero}-kart.png`), `${hero} must draw a distinct sprite`);
+assert(drawnAssets.includes("assets/busan-coast.png"), "The panorama must be rendered");
+assert(drawnAssets.includes("assets/coastal-palm.png"), "Roadside palms must use the photo asset");
+assert.equal(node("graphics-status").textContent, "", "Successful loading clears the status");
+drawnAssets.length = 0;
+run("graphics.driver.naturalWidth=0; graphics.driver.onerror(); render()");
+assert(!drawnAssets.includes("assets/dva-kart.png"), "Failed sprites use procedural fallback");
+assert.match(node("graphics-status").textContent, /새로고침/, "Failed images show recovery instructions");
 console.log(
   "PASS: canvas render calls, keyboard input, pause/resume, finish UI, restart, boost audio/mute/reset, high-DPI budget",
 );
